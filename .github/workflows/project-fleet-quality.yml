@@ -1,0 +1,27 @@
+name: Project Fleet source-quality checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/page.tsx"
+      - "tests/source-excellence.test.mjs"
+      - ".github/workflows/project-fleet-quality.yml"
+  pull_request:
+    paths:
+      - "app/page.tsx"
+      - "tests/source-excellence.test.mjs"
+      - ".github/workflows/project-fleet-quality.yml"
+
+jobs:
+  source-quality:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify source behavior and preservation invariants
+        run: node --test tests/source-excellence.test.mjs
