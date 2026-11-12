@@ -125,6 +125,15 @@ function slugifyProject(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+function safeProjectUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function projectPath(project: Project) {
   return `/projects/${slugifyProject(project.name)}`;
 }
@@ -245,6 +254,50 @@ export default function Home() {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [selected, addOpen, captainOpen]);
+
+  // A modal receives keyboard focus, contains Tab/Shift+Tab, and returns focus
+  // to its opener after dismissal. The captain's non-modal popover is excluded.
+  useEffect(() => {
+    if (!selected && !addOpen) return;
+    const dialog = document.querySelector<HTMLElement>('.modal-backdrop [role="dialog"][aria-modal="true"]');
+    if (!dialog) return;
+    const returnFocus = document.activeElement;
+    const selector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(selector))
+      .filter((element) => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const containFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", containFocus);
+    return () => {
+      document.removeEventListener("keydown", containFocus);
+      window.requestAnimationFrame(() => {
+        if (returnFocus instanceof HTMLElement && returnFocus.isConnected &&
+          !document.querySelector('.modal-backdrop [role="dialog"][aria-modal="true"]')) {
+          returnFocus.focus();
+        }
+      });
+    };
+  }, [selected, addOpen]);
 
   useEffect(() => {
     if (!selected && !addOpen && !captainOpen) return;
@@ -509,6 +562,11 @@ export default function Home() {
   async function addShip(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const submittedUrl = safeProjectUrl(String(form.get("url") || ""));
+    if (!submittedUrl) {
+      setToast("Please enter an HTTP or HTTPS project address.");
+      return;
+    }
     const avatarFile = form.get("avatarFile");
     let avatar = String(form.get("avatarUrl") || "");
     if (avatarFile instanceof File && avatarFile.size > 0) {
@@ -532,7 +590,7 @@ export default function Home() {
       icon: String(form.get("icon") || "⚓").slice(0, 3),
       details: details.length ? details : ["Community-built", "Ready to explore", "Charting new waters"],
       developer: String(form.get("developer")),
-      url: String(form.get("url")),
+      url: submittedUrl,
       avatar,
       custom: true,
     };
@@ -540,14 +598,14 @@ export default function Home() {
     setAddOpen(false);
     setCaptainOpen(false);
     navigateTo("/");
-    setToast(`${next.name} was submitted for captain review.`);
+    setToast(`${next.name} was saved for review on this device.`);
   }
 
   function approveShip(project: Project) {
     const approved = { ...project, number: String(fleet.length + 1).padStart(2, "0") };
     saveCustomShips([...fleet, approved]);
     savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
-    setToast(`${project.name} was approved and joined the fleet.`);
+    setToast(`${project.name} was approved locally and joined this browser's fleet.`);
   }
 
   function rejectShip(project: Project) {
@@ -622,13 +680,14 @@ export default function Home() {
             <Image src={CAPTAIN_PROFILE} alt="AJ Miller T. Perez wearing a captain's hat" width={82} height={82} unoptimized />
             <span><small>Captain &amp; product builder</small><strong>AJ Miller T. Perez</strong></span>
             <p>Software quality leader charting practical digital products from Metro Manila.</p>
+            <p>Approvals and rejections are stored only in this browser. They are not verified by the portfolio owner or synchronized to a server.</p>
             <section className="review-queue" aria-labelledby="review-queue-title">
               <div className="review-queue__heading">
-                <span><small>Moderation desk</small><strong id="review-queue-title">App review queue</strong></span>
+                <span><small>On-device demo only</small><strong id="review-queue-title">Local app review queue</strong></span>
                 <b>{pendingShips.length} pending</b>
               </div>
               {pendingShips.length === 0 ? (
-                <p>All clear. New app submissions will wait here for approval.</p>
+                <p>All clear. New app submissions saved on this device will wait here for local review.</p>
               ) : (
                 <div className="review-queue__list">
                   {pendingShips.map((project) => (
@@ -648,7 +707,7 @@ export default function Home() {
           </aside>
         )}
         <div className="nav__right">
-          <span className="date"><i /> Captain&apos;s Log · July 18, 2026</span>
+          <span className="date"><i /> Captain&apos;s Log · Portfolio demo</span>
           <button className="add-ship-nav" onClick={openAddShip}>＋ Add your ship</button>
           <button
             className={`sound ${soundOn ? "sound--on" : ""}`}
@@ -739,7 +798,11 @@ export default function Home() {
             <p className="modal-developer"><span className="modal-captain">{selected.avatar ? <Image src={selected.avatar} alt={`${selected.developer} profile`} width={36} height={36} unoptimized /> : <b>{selected.developer.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</b>}</span><span>Captain &amp; developer</span><strong>{selected.developer}</strong></p>
             <p className="modal-summary">{selected.summary}</p>
             <ul>{selected.details.map((detail) => <li key={detail}><span>✓</span>{detail}</li>)}</ul>
-            <a className="modal-launch" href={selected.url} target="_blank" rel="noreferrer">Ship It Captain! <span>↗</span></a>
+            {safeProjectUrl(selected.url) ? (
+              <a className="modal-launch" href={safeProjectUrl(selected.url)!} target="_blank" rel="noopener noreferrer">Ship It Captain! <span>↗</span></a>
+            ) : (
+              <p role="alert">This saved project address cannot be opened safely.</p>
+            )}
             <div className="modal-footer-actions"><button className="modal-action" onClick={closeView}>Return to the fleet <span>→</span></button>{selected.custom && <button className="remove-ship" onClick={() => removeShip(selected)}>Remove my ship</button>}</div>
           </article>
         </div>
@@ -752,7 +815,7 @@ export default function Home() {
             <span className="modal-number">OPEN HARBOR / NEW VESSEL</span>
             <div className="modal-icon">⚓</div>
             <h2 id="add-ship-title">Add your ship.</h2>
-            <p className="modal-summary">Submit a web app for Captain review. It will stay private on this device until it is approved for the fleet.</p>
+            <p className="modal-summary">Save an app for local review on this device. Nothing is submitted to the portfolio owner or a server; approval only changes your own browser&apos;s fleet.</p>
             <form className="ship-form" onSubmit={addShip}>
               <div className="form-grid"><label>Ship / app name<input name="name" required maxLength={42} placeholder="My brilliant app" /></label><label>Developer or team<input name="developer" required maxLength={42} placeholder="Your name or team" /></label></div>
               <div className="form-grid"><label>Captain profile photo<input name="avatarFile" type="file" accept="image/png,image/jpeg,image/webp" /></label><label>Or profile photo URL<input name="avatarUrl" type="url" placeholder="https://…" /></label></div>
@@ -760,7 +823,7 @@ export default function Home() {
               <label>What does it do?<textarea name="summary" required maxLength={180} rows={3} placeholder="A short description of the problem your app solves." /></label>
               <label>Three highlights, separated by commas<input name="details" placeholder="Fast setup, Smart insights, Public access" /></label>
               <div className="form-grid compact"><label>Ship symbol<input name="icon" defaultValue="⚓" maxLength={3} aria-label="Ship symbol" /></label><label>Flag color<input name="accent" type="color" defaultValue="#ffd166" aria-label="Flag color" /></label></div>
-              <button className="modal-launch" type="submit">Submit for review <span>→</span></button>
+              <button className="modal-launch" type="submit">Save for local review <span>→</span></button>
             </form>
           </article>
         </div>
