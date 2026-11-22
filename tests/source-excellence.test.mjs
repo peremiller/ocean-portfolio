@@ -20,6 +20,14 @@ test("allows full HTTP and HTTPS links, not unsafe schemes", () => {
   }
 });
 
+test("rejects credential-bearing URLs without disrupting normal project links", () => {
+  assert.equal(safeProjectUrl("https://username:password@example.com/private"), null);
+  assert.equal(safeProjectUrl("https://username@example.com/"), null);
+  assert.equal(safeProjectUrl("http://user:pass@example.com/"), null);
+  assert.equal(safeProjectUrl("https://example.com/project?view=demo"), "https://example.com/project?view=demo");
+  assert.match(source, /without embedded login details/);
+});
+
 test("newly entered and previously saved project destinations use the same safety guard", () => {
   assert.match(source, /const submittedUrl = safeProjectUrl\(String\(form\.get\("url"\)/);
   assert.match(source, /url: submittedUrl,/);
