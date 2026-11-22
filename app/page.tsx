@@ -128,6 +128,8 @@ function slugifyProject(name: string) {
 function safeProjectUrl(value: string): string | null {
   try {
     const url = new URL(value);
+    // Credential-bearing links can expose usernames/passwords when opened or copied.
+    if (url.username || url.password) return null;
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
   } catch {
     return null;
@@ -564,7 +566,7 @@ export default function Home() {
     const form = new FormData(event.currentTarget);
     const submittedUrl = safeProjectUrl(String(form.get("url") || ""));
     if (!submittedUrl) {
-      setToast("Please enter an HTTP or HTTPS project address.");
+      setToast("Enter an HTTP or HTTPS address without embedded login details.");
       return;
     }
     const avatarFile = form.get("avatarFile");
