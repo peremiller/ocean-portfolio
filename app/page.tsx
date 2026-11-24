@@ -573,12 +573,18 @@ export default function Home() {
     let avatar = String(form.get("avatarUrl") || "");
     if (avatarFile instanceof File && avatarFile.size > 0) {
       if (avatarFile.size > 1_500_000) { setToast("Please choose a captain photo smaller than 1.5 MB."); return; }
-      avatar = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(avatarFile);
-      });
+      try {
+        avatar = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.onabort = () => reject(new Error("Photo read cancelled"));
+          reader.readAsDataURL(avatarFile);
+        });
+      } catch {
+        setToast("Could not read the captain photo. Choose another file or retry; your form entries are still here.");
+        return;
+      }
     }
     const details = String(form.get("details") || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 3);
     const next: Project = {
