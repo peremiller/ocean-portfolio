@@ -58,3 +58,11 @@ test("modal focus is contained, Escape closes and opener can regain focus", () =
   assert.match(source, /returnFocus\.focus\(\)/);
   assert.match(source, /event\.key === "Escape"/);
 });
+
+test("photo read failure and cancellation keep the form available for retry", () => {
+  const handler = source.slice(source.indexOf("async function addShip("), source.indexOf("function approveShip("));
+  assert.match(handler, /reader\.onabort = \(\) => reject/);
+  assert.match(handler, /reader\.onerror = \(\) => reject/);
+  assert.match(handler, /catch \{\s*setToast\("Could not read the captain photo[^"]*"\);\s*return;\s*\}/);
+  assert.ok(handler.indexOf("Could not read the captain photo") < handler.indexOf("savePendingShips("));
+});
