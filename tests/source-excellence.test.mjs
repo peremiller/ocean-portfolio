@@ -66,3 +66,24 @@ test("photo read failure and cancellation keep the form available for retry", ()
   assert.match(handler, /catch \{\s*setToast\("Could not read the captain photo[^"]*"\);\s*return;\s*\}/);
   assert.ok(handler.indexOf("Could not read the captain photo") < handler.indexOf("savePendingShips("));
 });
+
+
+test("pending storage write failure preserves existing state and submission form", () => {
+  const body = source.match(/function savePendingShips\(next: Project\[\]\) \{([\s\S]*?)\n  \}/);
+  assert.ok(body);
+  const save = new Function("next", "localStorage", "setPendingShips", body[1]);
+  const previous = [{ id: "old" }];
+  const next = [...previous, { id: "new" }];
+  let state = previous;
+  let stored = JSON.stringify(previous);
+  const setState = (value) => { state = value; };
+  assert.throws(() => save(next, { setItem() { throw new Error("quota"); } }, setState), /quota/);
+  assert.equal(state, previous);
+  assert.equal(stored, JSON.stringify(previous));
+  save(next, { setItem(key, value) { assert.equal(key, "aj-fleet:pending-ships"); stored = value; } }, setState);
+  assert.equal(state, next);
+  assert.equal(stored, JSON.stringify(next));
+  const handler = source.slice(source.indexOf("async function addShip("), source.indexOf("function approveShip("));
+  assert.match(handler, /try \{\s*savePendingShips\(\[\.\.\.pendingShips, next\]\);\s*\} catch \{\s*setToast\("Could not save on this device[^"]*"\);\s*return;\s*\}/);
+  assert.ok(handler.indexOf("Could not save on this device") < handler.indexOf("setAddOpen(false)"));
+});
