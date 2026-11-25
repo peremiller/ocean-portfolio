@@ -557,8 +557,8 @@ export default function Home() {
   }
 
   function savePendingShips(next: Project[]) {
-    setPendingShips(next);
     localStorage.setItem("aj-fleet:pending-ships", JSON.stringify(next));
+    setPendingShips(next);
   }
 
   async function addShip(event: FormEvent<HTMLFormElement>) {
@@ -602,7 +602,12 @@ export default function Home() {
       avatar,
       custom: true,
     };
-    savePendingShips([...pendingShips, next]);
+    try {
+      savePendingShips([...pendingShips, next]);
+    } catch {
+      setToast("Could not save on this device. Free some browser storage or check browser permissions, then retry. Your form entries are still here.");
+      return;
+    }
     setAddOpen(false);
     setCaptainOpen(false);
     navigateTo("/");
