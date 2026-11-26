@@ -87,3 +87,28 @@ test("pending storage write failure preserves existing state and submission form
   assert.match(handler, /try \{\s*savePendingShips\(\[\.\.\.pendingShips, next\]\);\s*\} catch \{\s*setToast\("Could not save on this device[^"]*"\);\s*return;\s*\}/);
   assert.ok(handler.indexOf("Could not save on this device") < handler.indexOf("setAddOpen(false)"));
 });
+
+
+test("custom ship removal retains state on storage failure", () => {
+  const body = source.match(/function saveCustomShips\(next: Project\[\]\) \{([\s\S]*?)\n  \}/);
+  assert.ok(body);
+  const save = new Function("next", "localStorage", "setFleet", body[1]);
+  const prior = [{ id: "starter", custom: false }, { id: "custom", custom: true }];
+  let state = prior;
+  let stored = JSON.stringify([prior[1]]);
+  assert.throws(() => save([prior[0]], { setItem() { throw Error("quota"); } }, v => state = v), /quota/);
+  assert.equal(state, prior);
+  assert.equal(stored, JSON.stringify([prior[1]]));
+  save([prior[0]], { setItem(key, value) { assert.equal(key, "aj-fleet:custom-ships"); stored = value; } }, v => state = v);
+  assert.deepEqual(state, [prior[0]]);
+  assert.equal(stored, "[]");
+});
+
+test("rejection and removal catch storage errors before success feedback or navigation", () => {
+  const reject = source.slice(source.indexOf("function rejectShip("), source.indexOf("function removeShip("));
+  const remove = source.slice(source.indexOf("function removeShip("), source.indexOf("function moveScene("));
+  assert.match(reject, /catch \{\s*setToast\("Could not save the decision[^"]*"\);\s*return;/);
+  assert.match(remove, /catch \{\s*setToast\("Could not save the removal[^"]*"\);\s*return;/);
+  assert.ok(remove.indexOf("Could not save the removal") < remove.indexOf("setSelected(null)"));
+  assert.ok(remove.indexOf("Could not save the removal") < remove.indexOf('navigateTo("/")'));
+});
