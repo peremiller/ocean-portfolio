@@ -552,8 +552,8 @@ export default function Home() {
   }
 
   function saveCustomShips(next: Project[]) {
-    setFleet(next);
     localStorage.setItem("aj-fleet:custom-ships", JSON.stringify(next.filter((ship) => ship.custom)));
+    setFleet(next);
   }
 
   function savePendingShips(next: Project[]) {
@@ -622,12 +622,22 @@ export default function Home() {
   }
 
   function rejectShip(project: Project) {
-    savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    try {
+      savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not save the decision on this device. Your pending ship is still available; check browser storage and retry.");
+      return;
+    }
     setToast(`${project.name} was declined.`);
   }
 
   function removeShip(project: Project) {
-    saveCustomShips(fleet.filter((ship) => ship.id !== project.id));
+    try {
+      saveCustomShips(fleet.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not save the removal on this device. Your ship is still available; check browser storage and retry.");
+      return;
+    }
     setSelected(null);
     navigateTo("/");
     setToast(`${project.name} returned to port.`);
