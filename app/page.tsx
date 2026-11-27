@@ -552,12 +552,16 @@ export default function Home() {
   }
 
   function saveCustomShips(next: Project[]) {
-    localStorage.setItem("aj-fleet:custom-ships", JSON.stringify(next.filter((ship) => ship.custom)));
+    const serialized = JSON.stringify(next.filter((ship) => ship.custom));
+    localStorage.setItem("aj-fleet:custom-ships", serialized);
+    if (localStorage.getItem("aj-fleet:custom-ships") !== serialized) throw new Error("Fleet write not verified");
     setFleet(next);
   }
 
   function savePendingShips(next: Project[]) {
-    localStorage.setItem("aj-fleet:pending-ships", JSON.stringify(next));
+    const serialized = JSON.stringify(next);
+    localStorage.setItem("aj-fleet:pending-ships", serialized);
+    if (localStorage.getItem("aj-fleet:pending-ships") !== serialized) throw new Error("Fleet write not verified");
     setPendingShips(next);
   }
 
@@ -615,9 +619,17 @@ export default function Home() {
   }
 
   function approveShip(project: Project) {
-    const approved = { ...project, number: String(fleet.length + 1).padStart(2, "0") };
-    saveCustomShips([...fleet, approved]);
-    savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    try {
+      // A previous attempt may have saved the fleet but failed to clear pending.
+      if (!fleet.some((ship) => ship.id === project.id)) {
+        const approved = { ...project, number: String(fleet.length + 1).padStart(2, "0") };
+        saveCustomShips([...fleet, approved]);
+      }
+      savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not verify the approval on this device. Check browser storage and retry; the saved fleet and pending list may need reconciliation.");
+      return;
+    }
     setToast(`${project.name} was approved locally and joined this browser's fleet.`);
   }
 

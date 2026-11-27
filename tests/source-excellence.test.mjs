@@ -80,7 +80,7 @@ test("pending storage write failure preserves existing state and submission form
   assert.throws(() => save(next, { setItem() { throw new Error("quota"); } }, setState), /quota/);
   assert.equal(state, previous);
   assert.equal(stored, JSON.stringify(previous));
-  save(next, { setItem(key, value) { assert.equal(key, "aj-fleet:pending-ships"); stored = value; } }, setState);
+  save(next, { setItem(key, value) { assert.equal(key, "aj-fleet:pending-ships"); stored = value; }, getItem() { return stored; } }, setState);
   assert.equal(state, next);
   assert.equal(stored, JSON.stringify(next));
   const handler = source.slice(source.indexOf("async function addShip("), source.indexOf("function approveShip("));
@@ -99,7 +99,7 @@ test("custom ship removal retains state on storage failure", () => {
   assert.throws(() => save([prior[0]], { setItem() { throw Error("quota"); } }, v => state = v), /quota/);
   assert.equal(state, prior);
   assert.equal(stored, JSON.stringify([prior[1]]));
-  save([prior[0]], { setItem(key, value) { assert.equal(key, "aj-fleet:custom-ships"); stored = value; } }, v => state = v);
+  save([prior[0]], { setItem(key, value) { assert.equal(key, "aj-fleet:custom-ships"); stored = value; }, getItem() { return stored; } }, v => state = v);
   assert.deepEqual(state, [prior[0]]);
   assert.equal(stored, "[]");
 });
@@ -111,4 +111,39 @@ test("rejection and removal catch storage errors before success feedback or navi
   assert.match(remove, /catch \{\s*setToast\("Could not save the removal[^"]*"\);\s*return;/);
   assert.ok(remove.indexOf("Could not save the removal") < remove.indexOf("setSelected(null)"));
   assert.ok(remove.indexOf("Could not save the removal") < remove.indexOf('navigateTo("/")'));
+});
+
+test("silent write rejection does not change displayed fleet or pending records", () => {
+  for (const [fn, setter] of [["saveCustomShips", "setFleet"], ["savePendingShips", "setPendingShips"]]) {
+    const start = source.indexOf("function " + fn + "(");
+    const body = source.slice(source.indexOf("{", start) + 1, source.indexOf("\n  }", start));
+    const save = new Function("next", "localStorage", setter, body);
+    const prior = [{ id: "old", custom: true }];
+    let state = prior;
+    assert.throws(() => save([{ id: "new", custom: true }], {
+      setItem() {}, getItem() { return JSON.stringify(prior); }
+    }, value => { state = value; }), /write not verified/);
+    assert.equal(state, prior);
+  }
+});
+
+test("approval retry after pending write failure does not duplicate approved ship", () => {
+  const body = source.match(/function approveShip\(project: Project\) \{([\s\S]*?)\n  \}/);
+  assert.ok(body);
+  const approve = new Function("project", "fleet", "pendingShips", "saveCustomShips", "savePendingShips", "setToast", body[1]);
+  const project = { id: "p", name: "Pending", custom: true };
+  let fleet = [{ id: "starter" }], pending = [project], toast = "";
+  let saves = 0, failPending = true;
+  const run = () => approve(project, fleet, pending, value => { fleet = value; saves++; },
+    value => { if (failPending) throw Error("quota"); pending = value; }, value => { toast = value; });
+  run();
+  assert.equal(saves, 1);
+  assert.equal(pending.length, 1);
+  assert.match(toast, /Could not verify/);
+  failPending = false;
+  run();
+  assert.equal(saves, 1);
+  assert.equal(fleet.filter(ship => ship.id === project.id).length, 1);
+  assert.equal(pending.length, 0);
+  assert.match(toast, /was approved locally/);
 });
