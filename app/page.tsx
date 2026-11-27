@@ -128,6 +128,8 @@ function slugifyProject(name: string) {
 function safeProjectUrl(value: string): string | null {
   try {
     const url = new URL(value);
+    // Credential-bearing links can expose usernames/passwords when opened or copied.
+    if (url.username || url.password) return null;
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
   } catch {
     return null;
@@ -550,13 +552,17 @@ export default function Home() {
   }
 
   function saveCustomShips(next: Project[]) {
+    const serialized = JSON.stringify(next.filter((ship) => ship.custom));
+    localStorage.setItem("aj-fleet:custom-ships", serialized);
+    if (localStorage.getItem("aj-fleet:custom-ships") !== serialized) throw new Error("Fleet write not verified");
     setFleet(next);
-    localStorage.setItem("aj-fleet:custom-ships", JSON.stringify(next.filter((ship) => ship.custom)));
   }
 
   function savePendingShips(next: Project[]) {
+    const serialized = JSON.stringify(next);
+    localStorage.setItem("aj-fleet:pending-ships", serialized);
+    if (localStorage.getItem("aj-fleet:pending-ships") !== serialized) throw new Error("Fleet write not verified");
     setPendingShips(next);
-    localStorage.setItem("aj-fleet:pending-ships", JSON.stringify(next));
   }
 
   async function addShip(event: FormEvent<HTMLFormElement>) {
@@ -564,19 +570,25 @@ export default function Home() {
     const form = new FormData(event.currentTarget);
     const submittedUrl = safeProjectUrl(String(form.get("url") || ""));
     if (!submittedUrl) {
-      setToast("Please enter an HTTP or HTTPS project address.");
+      setToast("Enter an HTTP or HTTPS address without embedded login details.");
       return;
     }
     const avatarFile = form.get("avatarFile");
     let avatar = String(form.get("avatarUrl") || "");
     if (avatarFile instanceof File && avatarFile.size > 0) {
       if (avatarFile.size > 1_500_000) { setToast("Please choose a captain photo smaller than 1.5 MB."); return; }
-      avatar = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(avatarFile);
-      });
+      try {
+        avatar = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.onabort = () => reject(new Error("Photo read cancelled"));
+          reader.readAsDataURL(avatarFile);
+        });
+      } catch {
+        setToast("Could not read the captain photo. Choose another file or retry; your form entries are still here.");
+        return;
+      }
     }
     const details = String(form.get("details") || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 3);
     const next: Project = {
@@ -594,7 +606,12 @@ export default function Home() {
       avatar,
       custom: true,
     };
-    savePendingShips([...pendingShips, next]);
+    try {
+      savePendingShips([...pendingShips, next]);
+    } catch {
+      setToast("Could not save on this device. Free some browser storage or check browser permissions, then retry. Your form entries are still here.");
+      return;
+    }
     setAddOpen(false);
     setCaptainOpen(false);
     navigateTo("/");
@@ -602,19 +619,37 @@ export default function Home() {
   }
 
   function approveShip(project: Project) {
-    const approved = { ...project, number: String(fleet.length + 1).padStart(2, "0") };
-    saveCustomShips([...fleet, approved]);
-    savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    try {
+      // A previous attempt may have saved the fleet but failed to clear pending.
+      if (!fleet.some((ship) => ship.id === project.id)) {
+        const approved = { ...project, number: String(fleet.length + 1).padStart(2, "0") };
+        saveCustomShips([...fleet, approved]);
+      }
+      savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not verify the approval on this device. Check browser storage and retry; the saved fleet and pending list may need reconciliation.");
+      return;
+    }
     setToast(`${project.name} was approved locally and joined this browser's fleet.`);
   }
 
   function rejectShip(project: Project) {
-    savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    try {
+      savePendingShips(pendingShips.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not save the decision on this device. Your pending ship is still available; check browser storage and retry.");
+      return;
+    }
     setToast(`${project.name} was declined.`);
   }
 
   function removeShip(project: Project) {
-    saveCustomShips(fleet.filter((ship) => ship.id !== project.id));
+    try {
+      saveCustomShips(fleet.filter((ship) => ship.id !== project.id));
+    } catch {
+      setToast("Could not save the removal on this device. Your ship is still available; check browser storage and retry.");
+      return;
+    }
     setSelected(null);
     navigateTo("/");
     setToast(`${project.name} returned to port.`);
